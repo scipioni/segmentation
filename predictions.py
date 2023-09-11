@@ -43,9 +43,7 @@ def pred(image, model, threshold=0.1):
         input_batch = input_batch.to('cuda')
 
     with torch.no_grad():
-        print("inference")
         output = model(input_batch)['out'][0]
-        print("ok")
         output = (output > threshold).type(torch.IntTensor)
         output = output.cpu().numpy()[0]
 
