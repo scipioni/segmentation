@@ -20,4 +20,4 @@ tasks:
 
   test:
     cmds:
-      - python predictions.py /archive/dataset/plates/train-ita-01/*jpg
+      - python predictions.py /archive/dataset/plates/train-ita-03/*jpg
