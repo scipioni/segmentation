@@ -11,6 +11,7 @@ from scipy.spatial import distance as dist
 def initParser():
     parser = configargparse.get_argument_parser()
     parser.add_argument("images", nargs="+", help="list of images")
+    parser.add_argument("--step", action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -121,14 +122,14 @@ def getBoxes(frame, coords):
 
     boxes = []
     for cnt in contours:
-        # tmphull = cv.convexHull(cnt)
-        # box = cv.approxPolyDP(tmphull, 0.04*cv.arcLength(tmphull, True), True)
-
+        #peri = cv.arcLength(cnt, True)
+        #box = np.int0([i[0] for i in cv.approxPolyDP(cnt, 0.05 * peri, True)])
+        
         rect = cv.minAreaRect(cnt)
         box = cv.boxPoints(rect)
         box = np.int0(box)
-
-        boxes.append(box)
+        if len(box) == 4:
+            boxes.append(box)
 
     return boxes
 
@@ -172,7 +173,7 @@ def main():
             except:
                 pass
         cv.imshow("original", frame)
-        key = cv.waitKey(0)
+        key = cv.waitKey(0 if config.step else 1)
         if key == ord("q"):
             break
 
