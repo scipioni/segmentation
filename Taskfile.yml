@@ -17,3 +17,7 @@ tasks:
         python -m venv --system-site-packages .venv
         source .venv/bin/activate
         pip install -r requirements.txt
+
+  test:
+    cmds:
+      - python predictions.py /archive/dataset/plates/train-ita-01/*jpg

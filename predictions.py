@@ -1,17 +1,11 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# yay -S python-torchvision-cuda
-# pip install configargparse
-# scaricare il modello model_v2.pth da https://github.com/dbpprt/pytorch-licenseplate-segmentation
-
 import torch
-import cv2
+import cv2 as cv
 from PIL import Image
 from torchvision import transforms
 from torchvision import models
 import numpy as np
 import configargparse
+from scipy.spatial import distance as dist
 
 
 def initParser():
@@ -19,60 +13,169 @@ def initParser():
     parser.add_argument("images", nargs="+", help="list of images")
     return parser.parse_args()
 
+
 def create_model(weights="model_v2.pth", outputchannels=1):
     model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True)
     model.classifier = models.segmentation.deeplabv3.DeepLabHead(2048, outputchannels)
-    checkpoint = torch.load(weights, map_location='cpu')
-    model.load_state_dict(checkpoint['model'])
+    checkpoint = torch.load(weights, map_location="cpu")
+    model.load_state_dict(checkpoint["model"])
     _ = model.eval()
 
     if torch.cuda.is_available():
-        model.to('cuda')
+        model.to("cuda")
     return model
 
+
 def pred(image, model, threshold=0.1):
-    preprocess = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+    preprocess = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
 
     input_tensor = preprocess(image)
     input_batch = input_tensor.unsqueeze(0)
-    
+
     if torch.cuda.is_available():
-        input_batch = input_batch.to('cuda')
+        input_batch = input_batch.to("cuda")
 
     with torch.no_grad():
-        output = model(input_batch)['out'][0]
+        output = model(input_batch)["out"][0]
         output = (output > threshold).type(torch.IntTensor)
         output = output.cpu().numpy()[0]
 
         return output
 
+
 def segmentate(frame, model):
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    image = Image.fromarray(cv.cvtColor(frame, cv.COLOR_BGR2RGB))
     outputs = pred(image=image, model=model)
     result = np.where(outputs > 0)
     coords = list(zip(result[0], result[1]))
-    for cord in coords:
-        image.putpixel((cord[1], cord[0]), (255, 0, 0))
+    for coord in coords:
+        image.putpixel((coord[1], coord[0]), (0, 255, 0))
 
-    out = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    return out, coords 
+    out = cv.cvtColor(np.array(image), cv.COLOR_RGB2BGR)
+    return out, coords
+
+
+def order_points_new(pts):
+    # sort the points based on their x-coordinates
+    xSorted = pts[np.argsort(pts[:, 0]), :]
+    # grab the left-most and right-most points from the sorted
+    # x-roodinate points
+    leftMost = xSorted[:2, :]
+    rightMost = xSorted[2:, :]
+    # now, sort the left-most coordinates according to their
+    # y-coordinates so we can grab the top-left and bottom-left
+    # points, respectively
+    leftMost = leftMost[np.argsort(leftMost[:, 1]), :]
+    (tl, bl) = leftMost
+    # now that we have the top-left coordinate, use it as an
+    # anchor to calculate the Euclidean distance between the
+    # top-left and right-most points; by the Pythagorean
+    # theorem, the point with the largest distance will be
+    # our bottom-right point
+    D = dist.cdist(tl[np.newaxis], rightMost, "euclidean")[0]
+    (br, tr) = rightMost[np.argsort(D)[::-1], :]
+    # return the coordinates in top-left, top-right,
+    # bottom-right, and bottom-left order
+    return np.array([tl, tr, br, bl], dtype="float32")
+
+
+def order_points(pts):
+    # initialize a list of coordinates that will be ordered
+    # such that the first entry in the list is the top-left,
+    # the second entry is the top-right, the third is the
+    # bottom-right, and the fourth is the bottom-left
+    rect = np.zeros((4, 2), dtype="float32")
+    # the top-left point will have the smallest sum, whereas
+    # the bottom-right point will have the largest sum
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    # now, compute the difference between the points, the
+    # top-right point will have the smallest difference,
+    # whereas the bottom-left will have the largest difference
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    # return the ordered coordinates
+    return rect
+
+
+def getBoxes(frame, coords):
+    h, w = frame.shape[:2]
+
+    # create black image and white pixels on segmentation
+    img = np.zeros((h, w, 1), dtype=np.uint8)
+    for coord in coords:
+        x, y = coord
+        img[x, y] = 255
+
+    contours, hierarchy = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    # hierarchy = np.squeeze(hierarchy)
+    # print("Number of contours found = " + str(len(contours)))
+    # cv.drawContours(frame, contours, -1, (255, 0, 0), 1)
+
+    boxes = []
+    for cnt in contours:
+        # tmphull = cv.convexHull(cnt)
+        # box = cv.approxPolyDP(tmphull, 0.04*cv.arcLength(tmphull, True), True)
+
+        rect = cv.minAreaRect(cnt)
+        box = cv.boxPoints(rect)
+        box = np.int0(box)
+
+        boxes.append(box)
+
+    return boxes
+
+
+def getWarped(frame, box, w=300, h=100):
+    rect = order_points_new(box)
+    destpts = np.float32([[0, 0], [300, 0], [300, 100], [0, 100]])
+    resmatrix = cv.getPerspectiveTransform(np.float32(rect), destpts)
+    return np.int0(rect), cv.warpPerspective(frame, resmatrix, (300, 100))
+
+
+def overlayImage(frame, xy, smaller):
+    x_offset, y_offset = xy
+    frame[
+        y_offset : y_offset + smaller.shape[0], x_offset : x_offset + smaller.shape[1]
+    ] = smaller
 
 
 def main():
     config = initParser()
     model = create_model("./model_v2.pth")
     for filename in config.images:
-        frame = cv2.imread(filename)
+        frame = cv.imread(filename)
 
-        image,coords = segmentate(frame, model)
-        
-        cv2.imshow("image", image)
-        key=cv2.waitKey(0)
-        if key==ord("q"):
+        image, coords = segmentate(frame, model)
+        cv.imshow("segmentation", image)
+
+        boxes = getBoxes(frame, coords)
+
+        for box in boxes:
+            rect, smaller = getWarped(frame, box)
+            cv.drawContours(frame, [box], 0, (0, 0, 255), 1)
+            try:
+                y = sorted(rect, key=lambda p: p[1])[0][
+                    1
+                ]  # prendiamo il punto più alto
+                x = sorted(rect, key=lambda p: p[0])[0][
+                    0
+                ]  # prendiamo il punto più a sinistra
+                overlayImage(frame, (x, max(1, y - smaller.shape[0])), smaller)
+            except:
+                pass
+        cv.imshow("original", frame)
+        key = cv.waitKey(0)
+        if key == ord("q"):
             break
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
