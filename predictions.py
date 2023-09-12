@@ -141,12 +141,16 @@ def getWarped(frame, box, w=300, h=100):
     return np.int0(rect), cv.warpPerspective(frame, resmatrix, (300, 100))
 
 
-def overlayImage(frame, xy, smaller):
+def overlayImage(frame, xy, plate):
     x_offset, y_offset = xy
     frame[
-        y_offset : y_offset + smaller.shape[0], x_offset : x_offset + smaller.shape[1]
-    ] = smaller
+        y_offset : y_offset + plate.shape[0], x_offset : x_offset + plate.shape[1]
+    ] = plate
 
+def equalize(frame):
+    yuv = cv.cvtColor(frame, cv.COLOR_BGR2YUV)
+    yuv[:,:,0] = cv.equalizeHist(yuv[:,:,0]) # equalize the histogram of the Y channel
+    return cv.cvtColor(yuv, cv.COLOR_YUV2BGR)
 
 def main():
     config = initParser()
@@ -155,13 +159,17 @@ def main():
         frame = cv.imread(filename)
 
         image, coords = segmentate(frame, model)
-        cv.imshow("segmentation", image)
 
         boxes = getBoxes(frame, coords)
 
         for box in boxes:
-            rect, smaller = getWarped(frame, box)
+            rect, plate = getWarped(frame, box)
             cv.drawContours(frame, [box], 0, (0, 0, 255), 1)
+
+            plate = equalize(plate)
+
+            plate = cv.copyMakeBorder(src=plate, top=2, bottom=2, left=2, right=2, borderType=cv.BORDER_CONSTANT, value=(255,0,0)) 
+
             try:
                 y = sorted(rect, key=lambda p: p[1])[0][
                     1
@@ -169,10 +177,11 @@ def main():
                 x = sorted(rect, key=lambda p: p[0])[0][
                     0
                 ]  # prendiamo il punto più a sinistra
-                overlayImage(frame, (x, max(1, y - smaller.shape[0])), smaller)
+                overlayImage(frame, (x, max(1, y - plate.shape[0])), plate)
             except:
                 pass
-        cv.imshow("original", frame)
+        hori = np.concatenate((image, frame), axis=1)
+        cv.imshow("image", hori)
         key = cv.waitKey(0 if config.step else 1)
         if key == ord("q"):
             break
