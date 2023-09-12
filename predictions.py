@@ -1,17 +1,20 @@
-import torch
-import cv2 as cv
-from PIL import Image
-from torchvision import transforms
-from torchvision import models
-import numpy as np
+import os
+
 import configargparse
+import cv2 as cv
+import numpy as np
+import torch
+from PIL import Image
 from scipy.spatial import distance as dist
+from torchvision import models, transforms
 
 
 def initParser():
     parser = configargparse.get_argument_parser()
     parser.add_argument("images", nargs="+", help="list of images")
     parser.add_argument("--step", action="store_true", default=False)
+    parser.add_argument("--save", action="store_true", default=False, help="save yolo dataset")
+    parser.add_argument("--model", default="./model_v2.pth")
     return parser.parse_args()
 
 
@@ -116,9 +119,6 @@ def getBoxes(frame, coords):
         img[x, y] = 255
 
     contours, hierarchy = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-    # hierarchy = np.squeeze(hierarchy)
-    # print("Number of contours found = " + str(len(contours)))
-    # cv.drawContours(frame, contours, -1, (255, 0, 0), 1)
 
     boxes = []
     for cnt in contours:
@@ -152,15 +152,31 @@ def equalize(frame):
     yuv[:,:,0] = cv.equalizeHist(yuv[:,:,0]) # equalize the histogram of the Y channel
     return cv.cvtColor(yuv, cv.COLOR_YUV2BGR)
 
+
+def saveDataset(frame, filename, boxes):
+    h,w = frame.shape[:2]
+    with open(filename, "w") as f:
+        f.write("0")
+        for box in boxes:
+            for coord in box:
+                f.write(" %s %s" % (float(coord[0])/w, float(coord[1])/h))
+            f.write("\n")
+
+
 def main():
     config = initParser()
-    model = create_model("./model_v2.pth")
+    model = create_model(config.model)
     for filename in config.images:
         frame = cv.imread(filename)
+        if len(frame.shape) == 2:
+            frame = cv.cvtColor(frame, cv2.COLOR_GRAY2RGB)
 
         image, coords = segmentate(frame, model)
 
         boxes = getBoxes(frame, coords)
+
+        if config.save:
+            saveDataset(frame, os.path.splitext(filename)[0] + ".txt", boxes)
 
         for box in boxes:
             rect, plate = getWarped(frame, box)
@@ -178,10 +194,10 @@ def main():
                     0
                 ]  # prendiamo il punto più a sinistra
                 overlayImage(frame, (x, max(1, y - plate.shape[0])), plate)
-            except:
-                pass
-        hori = np.concatenate((image, frame), axis=1)
-        cv.imshow("image", hori)
+            except Exception as e:
+                print(e)
+                continue
+        cv.imshow("image", np.concatenate((image, frame), axis=1))
         key = cv.waitKey(0 if config.step else 1)
         if key == ord("q"):
             break
