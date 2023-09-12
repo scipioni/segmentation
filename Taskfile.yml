@@ -21,3 +21,7 @@ tasks:
   test:
     cmds:
       - python predictions.py /archive/dataset/plates/train-ita-03/*jpg
+
+  convert:
+    cmds:
+      - python yolo2ls.py /tmp/plates/*txt
