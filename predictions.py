@@ -121,13 +121,14 @@ def getBoxes(frame, coords):
     contours, hierarchy = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
     boxes = []
+    # calcoliamo il poligono a 4 lati che circoscrive il blob
     for cnt in contours:
         #peri = cv.arcLength(cnt, True)
         #box = np.int0([i[0] for i in cv.approxPolyDP(cnt, 0.05 * peri, True)])
         
         rect = cv.minAreaRect(cnt)
         box = cv.boxPoints(rect)
-        box = np.int0(box)
+        box = np.intp(box)
         if len(box) == 4:
             boxes.append(box)
 
@@ -138,7 +139,7 @@ def getWarped(frame, box, w=300, h=100):
     rect = order_points_new(box)
     destpts = np.float32([[0, 0], [300, 0], [300, 100], [0, 100]])
     resmatrix = cv.getPerspectiveTransform(np.float32(rect), destpts)
-    return np.int0(rect), cv.warpPerspective(frame, resmatrix, (300, 100))
+    return np.intp(rect), cv.warpPerspective(frame, resmatrix, (300, 100))
 
 
 def overlayImage(frame, xy, plate):
@@ -155,6 +156,7 @@ def equalize(frame):
 
 def saveDataset(frame, filename, boxes):
     h,w = frame.shape[:2]
+    print(f"saving {filename}")
     with open(filename, "w") as f:
         for box in boxes:
             f.write("0")
@@ -195,7 +197,7 @@ def main():
                 ]  # prendiamo il punto più a sinistra
                 overlayImage(frame, (x, max(1, y - plate.shape[0])), plate)
             except Exception as e:
-                print(e)
+                #print(e)
                 continue
         cv.imshow("image", np.concatenate((image, frame), axis=1))
         key = cv.waitKey(0 if config.step else 1)
