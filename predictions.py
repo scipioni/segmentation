@@ -156,8 +156,8 @@ def equalize(frame):
 def saveDataset(frame, filename, boxes):
     h,w = frame.shape[:2]
     with open(filename, "w") as f:
-        f.write("0")
         for box in boxes:
+            f.write("0")
             for coord in box:
                 f.write(" %s %s" % (float(coord[0])/w, float(coord[1])/h))
             f.write("\n")
